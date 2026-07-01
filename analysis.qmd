@@ -11,3 +11,169 @@ execute:
 library(tidyverse)
 library(readxl)
 ```
+
+```{r}
+#| message: false
+#| cache: true
+
+births_tibble <- read_excel("data/us_births_1994_2014.xlsx") |>
+  mutate(
+    day_of_week = factor(
+      day_of_week,
+      levels = c("Sun", "Mon", "Tues", "Wed", "Thurs", "Fri", "Sat"),
+      ordered = TRUE
+    )
+  )
+
+summary(births_tibble$year)
+```
+
+```{r}
+#| message: false
+
+births_average <- births_tibble |>
+  group_by(month, date_of_month) |>
+  summarize(
+    average_births = mean(births),
+    .groups = "drop"
+  )
+
+births_average
+```
+
+```{r}
+#| message: false
+
+births_tibble |>
+  group_by(month, date_of_month) |>
+  summarize(mean_births = mean(births), .groups = "drop") |>
+  ggplot(aes(x = date_of_month, y = month, fill = mean_births)) +
+  geom_tile(color = "white", linewidth = 0.1) +
+  scale_y_reverse(breaks = 1:12, labels = month.abb) +
+  scale_fill_gradient(low = "#fff7ec", high = "#7f0000",
+                      labels = scales::comma,
+                      name = "Mean births") +
+  labs(
+    title = "Mean US Births by Calendar Day (1994–2014)",
+    subtitle = "September peaks; holidays show deep dips (1994–2014)",
+    x = "Day of month",
+    y = NULL,
+    caption = "Source: FiveThirtyEight/SSA (1994–2014)"
+  ) +
+  theme_minimal()
+```
+```{r}
+christmas_data <- births_tibble |>
+  filter(month == 12, date_of_month %in% c(20:25, 27:30)) |>
+  mutate(
+    christmas = date_of_month == 25
+  ) |>
+  group_by(year, christmas) |>
+  summarize(
+    avg_births = mean(births),
+    .groups = "drop"
+  ) |>
+  pivot_wider(
+    names_from = christmas,
+    values_from = avg_births,
+    names_prefix = "christmas_"
+  ) |>
+  mutate(
+    pct_of_baseline = christmas_TRUE / christmas_FALSE * 100
+  )
+
+christmas_data
+```
+
+```{r}
+if (!exists("christmas_data")) {
+  christmas_data <- births_tibble |>
+    filter(month == 12, date_of_month %in% c(20:25, 27:30)) |>
+    mutate(
+      christmas = date_of_month == 25
+    ) |>
+    group_by(year, christmas) |>
+    summarize(
+      avg_births = mean(births),
+      .groups = "drop"
+    ) |>
+    pivot_wider(
+      names_from = christmas,
+      values_from = avg_births,
+      names_prefix = "christmas_"
+    ) |>
+    mutate(
+      pct_of_baseline = christmas_TRUE / christmas_FALSE * 100
+    )
+}
+
+summary(christmas_data)
+```
+
+```{r}
+#| message: false
+
+christmas_data |>
+  ggplot(aes(x = year, y = pct_of_baseline)) +
+  geom_line(color = "#2c7fb8") +
+  geom_point(color = "#d95f02", size = 2) +
+  labs(
+    title = "Christmas Day Births as a Percent of Baseline",
+    x = "Year",
+    y = "Percent of baseline"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+births_model <- lm(births ~ factor(year) + factor(month) + day_of_week, data = births_tibble)
+summary(births_model)$r.squared
+```
+
+```{r}
+#| message: false
+
+births_adjusted <- births_tibble |>
+  mutate(
+    pct_resid = residuals(births_model) / mean(births_tibble$births) * 100
+  )
+
+births_adjusted
+```
+
+```{r}
+#| message: false
+
+calendar_resid <- births_adjusted |>
+  filter(!(month == 2 & date_of_month == 29)) |>
+  group_by(month, date_of_month) |>
+  summarize(
+    mean_pct_resid = mean(pct_resid),
+    .groups = "drop"
+  ) |>
+  mutate(
+    calendar_date = as.Date(paste("2001", month, date_of_month, sep = "-"), format = "%Y-%m-%d")
+  )
+
+calendar_resid
+```
+
+```{r}
+calendar_resid |>
+  ggplot(aes(x = calendar_date, y = mean_pct_resid)) +
+  geom_hline(yintercept = 0, color = "gray60") +
+  geom_line(linewidth = 0.4) +
+  annotate("text", x = as.Date("2001-01-01"), y = -38, label = "Jan. 1",  size = 3, hjust = 0.2) +
+  annotate("text", x = as.Date("2001-07-04"), y = -14, label = "July 4",  size = 3, hjust = 0.5) +
+  annotate("text", x = as.Date("2001-12-25"), y = -38, label = "Dec. 25", size = 3, hjust = 1) +
+  scale_x_date(date_labels = "%b.", date_breaks = "3 months") +
+  scale_y_continuous(labels = scales::label_percent(scale = 1)) +
+  labs(
+    title = "Fewer Babies Are Born on Holidays",
+    subtitle = "US births relative to year-, month-, and weekday-adjusted baseline (1994–2014)",
+    x = NULL,
+    y = "% vs. adjusted baseline",
+    caption = "Source: FiveThirtyEight/SSA (1994–2014)"
+  ) +
+  theme_minimal()
+```
