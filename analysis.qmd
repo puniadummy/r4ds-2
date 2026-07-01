@@ -1,4 +1,13 @@
 ---
 title: "Analyzing US Births and Basketball Recruits"
 author: "Dhruv Punia"
+execute:
+  echo: false
 ---
+
+```{r}
+#| message: false
+
+library(tidyverse)
+library(readxl)
+```
